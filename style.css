@@ -46,8 +46,7 @@ button { font: inherit; color: inherit; }
 .button.subtle:hover, .icon-button:hover { background: var(--surface-2); color: var(--text); }
 .button.run { display: flex; gap: 8px; align-items: center; background: var(--accent); color: #1c130a; font-weight: 700; }
 .button.run:hover { background: var(--accent-2); }
-.example-button { border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 650; }
-.example-button:hover { border-color: var(--accent); color: var(--accent); }
+.example-select { max-width: 145px; color: var(--muted); }
 .workbench { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--debug-width); overflow: hidden; }
 .workspace { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(190px, var(--editor-height)) 6px minmax(120px, 1fr); }
 .editor-pane, .output-pane { min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
@@ -131,6 +130,7 @@ button { font: inherit; color: inherit; }
 .frame-timings .timing-label { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
 .frame-timings small { color: var(--muted); font-size: 8px; letter-spacing: .04em; text-transform: uppercase; }
 .frame-timings strong { overflow: hidden; color: var(--text); font: 10px/1.25 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-debug-only[hidden] { display: none; }
 .debug-section-title { display: flex; justify-content: space-between; padding: 9px 11px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .debug-section-title span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--accent); font-weight: 500; text-transform: none; }
 .disassembly { flex: 0 1 44%; min-height: 110px; overflow: auto; margin: 0; padding: 12px; color: var(--text); background: var(--bg); font: 11px/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace; white-space: pre; tab-size: 2; }

@@ -6,7 +6,7 @@
     <meta name="description" content="A multi-file browser playground for the mix language">
     <title>mix playground</title>
     <link rel="stylesheet" href="style.css">
-  <script src="./index-KVFEVR6M.js" type="module" crossorigin></script></head>
+  <script src="./index-V7OPCVRM.js" type="module" crossorigin></script></head>
   <body>
     <main id="app" class="app" hidden>
       <header class="topbar">
@@ -23,7 +23,11 @@
             <input id="deepEval" type="checkbox" checked>
             Deep
           </label>
-          <button id="loadExampleButton" class="button example-button" type="button" title="Replace the active file with the canvas example">Load example</button>
+          <select id="exampleSelect" class="runner-select example-select" aria-label="Load an example">
+            <option value="">Examples…</option>
+            <option value="simple">Simple values</option>
+            <option value="interactive">Interactive canvas</option>
+          </select>
           <button id="themeButton" class="button subtle" type="button" aria-label="Toggle theme">☾</button>
           <button id="runButton" class="button run" type="button"><span>▶</span> Run</button>
         </div>
@@ -71,9 +75,9 @@
           <button id="debugStart" class="debug-control primary" type="button"><span>▶</span> Start</button>
           <button id="debugPause" class="debug-control" type="button"><span>Ⅱ</span> Pause</button>
           <button id="debugStepInstruction" class="debug-control" type="button"><span>↦</span> Instruction</button>
-          <button id="debugStepFrame" class="debug-control" type="button"><span>▣</span> Frame</button>
+          <button id="debugStepFrame" class="debug-control canvas-debug-only" type="button"><span>▣</span> Frame</button>
         </div>
-        <div class="frame-timings" aria-label="Frame calculation timings">
+        <div id="frameTimings" class="frame-timings canvas-debug-only" aria-label="Frame calculation timings">
           <span class="timing-label">Frame compute</span>
           <span><small>current</small><strong id="frameTimeCurrent">—</strong></span>
           <span><small>avg 60</small><strong id="frameTimeAverage">—</strong></span>
