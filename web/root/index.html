@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A multi-file browser playground for the mix language">
+    <title>mix playground</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main id="app" class="app" hidden>
+      <header class="topbar">
+        <a class="brand" href="." aria-label="mix playground home">
+          <span class="brand-mark">m</span><span>mix</span><small>playground</small>
+        </a>
+        <div class="top-actions">
+          <span id="saveState" class="save-state">saved locally</span>
+          <select id="runnerMode" class="runner-select" aria-label="Runner mode">
+            <option value="evaluate">Evaluate</option>
+            <option value="canvas">Canvas loop</option>
+          </select>
+          <label id="deepEvalLabel" class="deep-toggle">
+            <input id="deepEval" type="checkbox" checked>
+            Deep
+          </label>
+          <button id="loadExampleButton" class="button example-button" type="button" title="Replace the active file with the canvas example">Load example</button>
+          <button id="themeButton" class="button subtle" type="button" aria-label="Toggle theme">☾</button>
+          <button id="runButton" class="button run" type="button"><span>▶</span> Run</button>
+        </div>
+      </header>
+
+      <div id="workbench" class="workbench">
+      <section class="workspace">
+        <div class="editor-pane">
+          <nav class="tabs" aria-label="Open files">
+            <div id="tabList" class="tab-list" role="tablist"></div>
+            <button id="newFileButton" class="new-tab" type="button" title="New file">＋</button>
+          </nav>
+          <div id="editor" class="editor"></div>
+          <footer class="statusbar">
+            <span id="cursorStatus">Ln 1, Col 1</span>
+            <span>mix</span>
+          </footer>
+        </div>
+
+        <div id="splitter" class="splitter" role="separator" aria-orientation="horizontal"></div>
+
+        <section class="output-pane" aria-label="Program output">
+          <header class="panel-header">
+            <div><span class="prompt">›_</span> Output</div>
+            <div class="panel-actions">
+              <div id="runnerViewSwitch" class="runner-view-switch" hidden>
+                <button id="canvasViewButton" class="runner-view-button active" type="button">Canvas</button>
+                <button id="outputViewButton" class="runner-view-button" type="button">Output</button>
+              </div>
+              <span id="runStatus" class="run-status">Ready</span>
+              <button id="clearButton" class="icon-button" type="button" title="Clear output">Clear</button>
+            </div>
+          </header>
+          <canvas id="runnerCanvas" class="runner-canvas" tabindex="0" hidden></canvas>
+          <pre id="output" class="output"><span class="muted">Run the active file with Ctrl/⌘ + Enter.</span></pre>
+        </section>
+      </section>
+      <div id="debugSplitter" class="debug-splitter" role="separator" aria-orientation="vertical"></div>
+      <aside id="debugPane" class="debug-pane" aria-label="Debugger">
+        <header class="debug-header">
+          <div><span class="prompt">⌁</span> Debugger</div>
+          <button id="debugToggle" class="icon-button debug-toggle" type="button" title="Minimize debugger" aria-label="Minimize debugger">›</button>
+        </header>
+        <div class="debug-controls">
+          <button id="debugStart" class="debug-control primary" type="button"><span>▶</span> Start</button>
+          <button id="debugPause" class="debug-control" type="button"><span>Ⅱ</span> Pause</button>
+          <button id="debugStepInstruction" class="debug-control" type="button"><span>↦</span> Instruction</button>
+          <button id="debugStepFrame" class="debug-control" type="button"><span>▣</span> Frame</button>
+        </div>
+        <div class="frame-timings" aria-label="Frame calculation timings">
+          <span class="timing-label">Frame compute</span>
+          <span><small>current</small><strong id="frameTimeCurrent">—</strong></span>
+          <span><small>avg 60</small><strong id="frameTimeAverage">—</strong></span>
+          <span><small>min</small><strong id="frameTimeMin">—</strong></span>
+          <span><small>max</small><strong id="frameTimeMax">—</strong></span>
+        </div>
+        <div class="debug-section-title">
+          <span>Disassembly</span>
+          <span id="debugProgramStatus">not compiled</span>
+        </div>
+        <pre id="disassembly" class="disassembly"><span class="muted">Compiled bytecode will appear here.</span></pre>
+        <div class="debug-section-title">
+          <span>Evaluator state</span>
+          <span id="evaluatorStatus">not paused</span>
+        </div>
+        <div class="evaluator-state">
+          <section class="stack-inspector">
+            <h3>Value stack <span id="valueStackCount">0</span></h3>
+            <div id="valueStack" class="stack-list"></div>
+          </section>
+          <section class="stack-inspector">
+            <h3>Thunk stack <span id="thunkStackCount">0</span></h3>
+            <div id="thunkStack" class="stack-list"></div>
+          </section>
+          <section class="stack-inspector">
+            <h3>Frame stack <span id="frameStackCount">0</span></h3>
+            <div id="frameStack" class="stack-list"></div>
+          </section>
+        </div>
+      </aside>
+      </div>
+    </main>
+
+    <dialog id="fileDialog" class="file-dialog" aria-labelledby="fileDialogTitle">
+      <form id="fileDialogForm" class="file-dialog-card" novalidate>
+        <div class="file-dialog-icon" aria-hidden="true">M</div>
+        <div class="file-dialog-copy">
+          <h2 id="fileDialogTitle">Create a new file</h2>
+          <p id="fileDialogDescription">Give this source file a unique name.</p>
+        </div>
+        <label class="file-name-field" for="fileNameInput">
+          <span>File name</span>
+          <div class="file-name-input-wrap">
+            <span aria-hidden="true">›</span>
+            <input id="fileNameInput" type="text" autocomplete="off" spellcheck="false" aria-describedby="fileNameError">
+          </div>
+        </label>
+        <p id="fileNameError" class="file-name-error" role="alert" aria-live="polite"></p>
+        <div class="file-dialog-actions">
+          <button id="fileDialogCancel" class="dialog-button cancel" type="button">Cancel</button>
+          <button id="fileDialogSubmit" class="dialog-button confirm" type="submit">Create file</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="deleteDialog" class="file-dialog" aria-labelledby="deleteDialogTitle">
+      <form id="deleteDialogForm" class="file-dialog-card delete-dialog-card">
+        <div class="file-dialog-icon danger" aria-hidden="true">!</div>
+        <div class="file-dialog-copy">
+          <h2 id="deleteDialogTitle">Delete this file?</h2>
+          <p id="deleteDialogDescription"></p>
+        </div>
+        <div class="delete-warning">
+          This file has content. Closing its tab will permanently delete it from this browser project.
+        </div>
+        <div class="file-dialog-actions">
+          <button id="deleteDialogCancel" class="dialog-button cancel" type="button">Keep file</button>
+          <button class="dialog-button danger" type="submit">Delete file</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="loading" class="loading"><span class="loader"></span> Loading mix…</div>
+    <script type="module" src="src/main.ts"></script>
+  </body>
+</html>

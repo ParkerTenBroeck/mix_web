@@ -1,0 +1,4 @@
+[workspace]
+members = ["web_lib"]
+resolver = "3"
+
