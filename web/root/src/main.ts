@@ -2,9 +2,10 @@ import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, hoverTooltip, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleLineComment } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { mixLanguage } from "./mix-language.ts";
-import { canvasExample } from "./examples.ts";
+import { canvasExample, simpleExample } from "./examples.ts";
 import wasm from "./wasm.ts";
 
 type FileModel = { id: string; name: string; contents: string };
@@ -38,12 +39,9 @@ type CompileResult = {
   files: string[];
 };
 type EditorDiagnostic = { from: number; to: number; level: SerializedReport["level"]; message: string };
+type IdentifierToken = { from: number; to: number; name: string; definition: boolean };
 
-const starter = `{
-  greeting = "hello from mix",
-  answer = 6 * 7,
-  values = [1, 2, 3],
-}`;
+const starter = simpleExample;
 const storageKey = "mix-playground-project-v1";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -56,6 +54,7 @@ const runnerMode = $<HTMLSelectElement>("runnerMode");
 const deepEval = $<HTMLInputElement>("deepEval");
 const runnerCanvas = $<HTMLCanvasElement>("runnerCanvas");
 const runnerViewSwitch = $<HTMLDivElement>("runnerViewSwitch");
+const exampleSelect = $<HTMLSelectElement>("exampleSelect");
 const fileDialog = $<HTMLDialogElement>("fileDialog");
 const fileDialogForm = $<HTMLFormElement>("fileDialogForm");
 const fileNameInput = $<HTMLInputElement>("fileNameInput");
@@ -76,11 +75,18 @@ let compileRequest = 0;
 let diagnosticsByFile = new Map<string, EditorDiagnostic[]>();
 let disassemblyText = "";
 let loopRunning = false;
+let debugRunning = false;
 let loopInitialized = false;
+let loopReady = false;
+let evaluationInitialized = false;
 let loopFrame: number | undefined;
+let evaluationFuel = 1_000;
+let loopFuel = 1_000;
+const targetBatchMs = 10;
 let previousLoopState: string | undefined;
 let loopView: "canvas" | "output" = "canvas";
 let loopFrameNumber = 0;
+let currentFrameInput: string | undefined;
 let pendingFrameComputeMs = 0;
 let frameComputeSamples: number[] = [];
 const heldKeys = new Set<string>();
@@ -89,6 +95,7 @@ const releasedKeys = new Set<string>();
 
 const setDiagnostics = StateEffect.define<EditorDiagnostic[]>();
 const setEvaluationRange = StateEffect.define<{ from: number; to: number } | null>();
+const setHoveredIdentifier = StateEffect.define<number | null>();
 const diagnosticField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update(value, transaction) {
@@ -122,6 +129,92 @@ const evaluationField = StateField.define<DecorationSet>({
   },
   provide: (field) => EditorView.decorations.from(field),
 });
+const identifierField = StateField.define<{ hover: number | null; decorations: DecorationSet }>({
+  create: (state) => ({ hover: null, decorations: identifierDecorations(state, null) }),
+  update(value, transaction) {
+    let hover = transaction.selection !== undefined ? null : value.hover;
+    for (const effect of transaction.effects) {
+      if (effect.is(setHoveredIdentifier)) hover = effect.value;
+    }
+    if (transaction.docChanged) hover = null;
+    return {
+      hover,
+      decorations: transaction.docChanged || transaction.selection !== undefined ||
+          transaction.effects.some((effect) => effect.is(setHoveredIdentifier))
+        ? identifierDecorations(transaction.state, hover)
+        : value.decorations.map(transaction.changes),
+    };
+  },
+  provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+});
+
+function identifierDecorations(state: EditorState, hover: number | null): DecorationSet {
+  const tokens = identifierTokens(state.doc.toString());
+  const position = hover ?? state.selection.main.head;
+  const active = tokens.find((token) => position >= token.from && position <= token.to);
+  if (!active || !tokens.some((token) => token.name === active.name && token.definition)) {
+    return Decoration.none;
+  }
+  return Decoration.set(tokens
+    .filter((token) => token.name === active.name)
+    .map((token) => Decoration.mark({
+      class: token.from === active.from
+        ? "mix-identifier-focus"
+        : token.definition
+        ? "mix-identifier-definition"
+        : "mix-identifier-usage",
+    }).range(token.from, token.to)), true);
+}
+
+function identifierTokens(source: string): IdentifierToken[] {
+  const tokens: IdentifierToken[] = [];
+  let position = 0;
+  let blockComment = false;
+  while (position < source.length) {
+    if (blockComment) {
+      const end = source.indexOf("*/", position);
+      if (end < 0) break;
+      blockComment = false;
+      position = end + 2;
+      continue;
+    }
+    if (source.startsWith("/*", position)) {
+      blockComment = true;
+      position += 2;
+      continue;
+    }
+    if (source[position] === "#") {
+      const end = source.indexOf("\n", position);
+      position = end < 0 ? source.length : end + 1;
+      continue;
+    }
+    if (source[position] === '"') {
+      position++;
+      while (position < source.length) {
+        if (source[position] === "\\" && position + 1 < source.length) position += 2;
+        else if (source[position++] === '"') break;
+      }
+      continue;
+    }
+    const match = /^[A-Za-z_][A-Za-z0-9_']*/.exec(source.slice(position));
+    if (!match) {
+      position++;
+      continue;
+    }
+    const from = position;
+    const to = position += match[0].length;
+    let next = to;
+    while (next < source.length && /\s/.test(source[next])) next++;
+    tokens.push({
+      from,
+      to,
+      name: match[0],
+      definition: (source[next] === "=" && source[next + 1] !== "=") ||
+        source[next] === ":",
+    });
+  }
+  return tokens;
+}
 
 function loadProject(): Project {
   try {
@@ -140,10 +233,24 @@ function extensions() {
   return [
     lineNumbers(), highlightActiveLineGutter(), history(), indentOnInput(),
     bracketMatching(), highlightActiveLine(), EditorView.lineWrapping, mixLanguage,
-    diagnosticField, evaluationField, diagnosticTooltip,
+    search(), highlightSelectionMatches(),
+    diagnosticField, evaluationField, identifierField, diagnosticTooltip,
+    EditorView.domEventHandlers({
+      mousemove(event, view) {
+        const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        const current = view.state.field(identifierField).hover;
+        if (position !== current) view.dispatch({ effects: setHoveredIdentifier.of(position) });
+      },
+      mouseleave(_event, view) {
+        if (view.state.field(identifierField).hover !== null) {
+          view.dispatch({ effects: setHoveredIdentifier.of(null) });
+        }
+      },
+    }),
     keymap.of([
       indentWithTab,
       { key: "Mod-/", run: toggleLineComment },
+      ...searchKeymap,
       ...defaultKeymap,
       ...historyKeymap,
     ]),
@@ -483,44 +590,34 @@ function showActiveDiagnostics() {
 function runActive() {
   if (runnerMode.value === "canvas") {
     if (loopRunning) stopLoop();
-    else startOrResumeLoop();
+    else startOrResumeLoop(false);
     return;
   }
-  runStatus.textContent = "Running…";
-  runStatus.className = "run-status busy";
-  output.textContent = "";
-  try {
-    if ((compiledRevision !== projectRevision || compiledEntry !== activeFile().name) && !compileProject()) {
-      renderTerminal("Fix the highlighted compiler errors before running.");
-      return;
-    }
-    const result = JSON.parse(wasm.run_compiled(deepEval.checked)) as RunResult;
-    renderTerminal(result.output || "(no output)");
-    runStatus.textContent = result.ok ? "Finished" : "Failed";
-    runStatus.className = `run-status ${result.ok ? "success" : "error"}`;
-  } catch (error) {
-    renderTerminal(String(error));
-    runStatus.textContent = "Crashed";
-    runStatus.className = "run-status error";
-  }
+  if (loopRunning) stopLoop();
+  else startOrResumeEvaluation();
 }
 
-function loadCanvasExample() {
+function loadSelectedExample() {
+  const selected = exampleSelect.value;
+  if (!selected) return;
+  const interactive = selected === "interactive";
+  const source = interactive ? canvasExample : simpleExample;
   stopLoop();
-  activeFile().contents = canvasExample;
-  editor.setState(makeState(canvasExample));
+  activeFile().contents = source;
+  editor.setState(makeState(source));
   projectRevision++;
   diagnosticsByFile.clear();
   showActiveDiagnostics();
-  runnerMode.value = "canvas";
+  runnerMode.value = interactive ? "canvas" : "evaluate";
   updateRunnerMode();
   renderTabs();
   scheduleSave();
   compileProject();
   editor.focus();
+  exampleSelect.value = "";
 }
 
-function initializeLoop(): boolean {
+function initializeLoop(debug = false): boolean {
   if ((compiledRevision !== projectRevision || compiledEntry !== activeFile().name) && !compileProject()) {
     renderTerminal("Fix the highlighted compiler errors before starting the loop.");
     return false;
@@ -533,25 +630,34 @@ function initializeLoop(): boolean {
     return false;
   }
   loopInitialized = true;
+  loopReady = false;
+  loopFuel = 1_000;
   previousLoopState = undefined;
+  currentFrameInput = undefined;
   loopFrameNumber = 0;
   pendingFrameComputeMs = 0;
   frameComputeSamples = [];
   renderFrameTimings();
   heldKeys.clear(); pressedKeys.clear(); releasedKeys.clear();
-  renderDisassembly();
-  renderEvaluator();
-  showEvaluationSource();
+  currentFrameInput = undefined;
+  if (debug) {
+    renderDisassembly();
+    renderEvaluator();
+    showEvaluationSource();
+  }
   return true;
 }
 
-function startOrResumeLoop() {
-  if (!loopInitialized && !initializeLoop()) return;
+function startOrResumeLoop(debug = false) {
+  if (!loopInitialized && !initializeLoop(debug)) return;
+  debugRunning = debug;
   loopRunning = true;
   setLoopView("canvas");
-  renderDisassembly();
-  renderEvaluator();
-  showEvaluationSource();
+  if (debug) {
+    renderDisassembly();
+    renderEvaluator();
+    showEvaluationSource();
+  }
   $("runButton").innerHTML = "<span>■</span> Stop";
   runStatus.textContent = "Running loop";
   runStatus.className = "run-status success";
@@ -563,21 +669,93 @@ function startOrResumeLoop() {
   runLoopFrame(true);
 }
 
+function initializeEvaluation(debug = false): boolean {
+  if ((compiledRevision !== projectRevision || compiledEntry !== activeFile().name) && !compileProject()) {
+    renderTerminal("Fix the highlighted compiler errors before starting evaluation.");
+    return false;
+  }
+  const started = JSON.parse(wasm.start_evaluation(deepEval.checked)) as RunResult;
+  if (!started.ok) {
+    renderTerminal(started.output);
+    runStatus.textContent = "Evaluation failed";
+    runStatus.className = "run-status error";
+    return false;
+  }
+  evaluationInitialized = true;
+  evaluationFuel = 1_000;
+  if (debug) {
+    renderDisassembly();
+    renderEvaluator();
+    showEvaluationSource();
+  }
+  return true;
+}
+
+function startOrResumeEvaluation(debug = false) {
+  if (!evaluationInitialized && !initializeEvaluation(debug)) return;
+  debugRunning = debug;
+  loopRunning = true;
+  $("runButton").innerHTML = "<span>■</span> Stop";
+  runStatus.textContent = "Evaluating…";
+  runStatus.className = "run-status busy";
+  updateDebugControls();
+  runEvaluationBatch();
+}
+
+function runEvaluationBatch() {
+  loopFrame = undefined;
+  if (!loopRunning || runnerMode.value !== "evaluate") return;
+  try {
+    const startedAt = performance.now();
+    const serialized = debugRunning
+      ? wasm.step_evaluation(evaluationFuel)
+      : wasm.run_evaluation(evaluationFuel);
+    const result = JSON.parse(serialized) as FrameResult;
+    evaluationFuel = adjustedFuel(evaluationFuel, performance.now() - startedAt);
+    if (!result.ok) {
+      failLoop(result.output, "Evaluation failed");
+      return;
+    }
+    if (debugRunning) {
+      renderDisassembly(result.instruction);
+      renderEvaluator(result.evaluator);
+      showEvaluationSource(result.source);
+    }
+    if (result.completed) {
+      loopRunning = false;
+      evaluationInitialized = false;
+      renderTerminal(result.output || "(no output)");
+      runStatus.textContent = "Finished";
+      runStatus.className = "run-status success";
+      $("runButton").innerHTML = "<span>▶</span> Run";
+      updateDebugControls();
+    } else {
+      loopFrame = requestAnimationFrame(runEvaluationBatch);
+    }
+  } catch (error) {
+    failLoop(String(error), "Evaluation crashed");
+  }
+}
+
 function stopLoop() {
+  const wasDebugRunning = debugRunning;
   if (loopFrame !== undefined) cancelAnimationFrame(loopFrame);
   loopFrame = undefined;
   loopRunning = false;
+  debugRunning = false;
   loopInitialized = false;
+  loopReady = false;
+  evaluationInitialized = false;
   heldKeys.clear(); pressedKeys.clear(); releasedKeys.clear();
   $("runButton").innerHTML = "<span>▶</span> Run";
-  renderDisassembly();
-  renderEvaluator();
-  showEvaluationSource();
-  updateDebugControls();
-  if (runnerMode.value === "canvas") {
-    runStatus.textContent = "Stopped";
-    runStatus.className = "run-status";
+  if (wasDebugRunning) {
+    renderDisassembly();
+    renderEvaluator();
+    showEvaluationSource();
   }
+  updateDebugControls();
+  runStatus.textContent = "Stopped";
+  runStatus.className = "run-status";
 }
 
 function pauseLoop() {
@@ -585,7 +763,7 @@ function pauseLoop() {
   loopFrame = undefined;
   loopRunning = false;
   $("runButton").innerHTML = "<span>▶</span> Run";
-  runStatus.textContent = loopInitialized ? "Paused" : "Stopped";
+  runStatus.textContent = loopInitialized || evaluationInitialized ? "Paused" : "Stopped";
   runStatus.className = "run-status";
   updateDebugControls();
 }
@@ -599,22 +777,53 @@ function stepLoop() {
   ensureCanvasMode();
   pauseLoop();
   if (!loopInitialized && !initializeLoop()) return;
+  debugRunning = true;
+  loopRunning = true;
+  $("runButton").innerHTML = "<span>■</span> Stop";
+  runStatus.textContent = "Stepping frame…";
   runLoopFrame(false);
-  if (loopInitialized) runStatus.textContent = `Paused at frame ${loopFrameNumber}`;
   updateDebugControls();
 }
 
 function stepInstruction() {
+  if (runnerMode.value === "evaluate") {
+    stepEvaluationInstruction();
+    return;
+  }
   ensureCanvasMode();
   pauseLoop();
   if (!loopInitialized && !initializeLoop()) return;
-  const input = consumeLoopInput();
+  debugRunning = true;
+  if (!loopReady) {
+    try {
+      const result = JSON.parse(wasm.step_loop_start(1)) as FrameResult;
+      if (!result.ok) {
+        failLoop(result.output, "Loop failed");
+        return;
+      }
+      loopReady = result.completed;
+      renderDisassembly(result.instruction);
+      renderEvaluator(result.evaluator);
+      showEvaluationSource(result.source);
+      runStatus.textContent = loopReady
+        ? "Loop initialized"
+        : `Paused before instruction ${String(result.instruction).padStart(4, "0")}`;
+      updateDebugControls();
+    } catch (error) {
+      failLoop(String(error), "Loop crashed");
+    }
+    return;
+  }
+  currentFrameInput ??= JSON.stringify(consumeLoopInput());
   try {
     const startedAt = performance.now();
-    const serialized = wasm.step_instruction(JSON.stringify(input));
+    const serialized = wasm.step_instruction(currentFrameInput);
     pendingFrameComputeMs += performance.now() - startedAt;
     const result = JSON.parse(serialized) as FrameResult;
-    if (result.completed) completeFrameTiming();
+    if (result.completed) {
+      currentFrameInput = undefined;
+      completeFrameTiming();
+    }
     if (!handleFrameResult(result)) return;
     renderDisassembly(result.instruction);
     renderEvaluator(result.evaluator);
@@ -625,6 +834,32 @@ function stepInstruction() {
     updateDebugControls();
   } catch (error) {
     failLoop(String(error), "Loop crashed");
+  }
+}
+
+function stepEvaluationInstruction() {
+  pauseLoop();
+  if (!evaluationInitialized && !initializeEvaluation()) return;
+  try {
+    const result = JSON.parse(wasm.step_evaluation(1)) as FrameResult;
+    if (!result.ok) {
+      failLoop(result.output, "Evaluation failed");
+      return;
+    }
+    renderDisassembly(result.instruction);
+    renderEvaluator(result.evaluator);
+    showEvaluationSource(result.source);
+    if (result.completed) {
+      evaluationInitialized = false;
+      renderTerminal(result.output || "(no output)");
+      runStatus.textContent = "Evaluation finished";
+      runStatus.className = "run-status success";
+    } else {
+      runStatus.textContent = `Paused before instruction ${String(result.instruction).padStart(4, "0")}`;
+    }
+    updateDebugControls();
+  } catch (error) {
+    failLoop(String(error), "Evaluation crashed");
   }
 }
 
@@ -642,23 +877,66 @@ function consumeLoopInput() {
 function runLoopFrame(scheduleNext: boolean) {
   loopFrame = undefined;
   if (scheduleNext && !loopRunning) return;
-  const input = consumeLoopInput();
   try {
+    if (!loopReady) {
+      const startedAt = performance.now();
+      const serialized = debugRunning
+        ? wasm.step_loop_start(loopFuel)
+        : wasm.run_loop_start(loopFuel);
+      const result = JSON.parse(serialized) as FrameResult;
+      loopFuel = adjustedFuel(loopFuel, performance.now() - startedAt);
+      if (!result.ok) {
+        failLoop(result.output, "Loop failed");
+        return;
+      }
+      if (debugRunning) {
+        renderDisassembly(result.instruction);
+        renderEvaluator(result.evaluator);
+        showEvaluationSource(result.source);
+      }
+      loopReady = result.completed;
+      loopFrame = requestAnimationFrame(() => runLoopFrame(scheduleNext));
+      return;
+    }
+
+    currentFrameInput ??= JSON.stringify(consumeLoopInput());
     const startedAt = performance.now();
-    const serialized = wasm.run_frame(JSON.stringify(input));
-    pendingFrameComputeMs += performance.now() - startedAt;
+    const serialized = wasm.run_frame(currentFrameInput, loopFuel);
+    const elapsed = performance.now() - startedAt;
+    loopFuel = adjustedFuel(loopFuel, elapsed);
+    pendingFrameComputeMs += elapsed;
     const result = JSON.parse(serialized) as FrameResult;
-    if (result.completed) completeFrameTiming();
+    if (result.completed) {
+      currentFrameInput = undefined;
+      completeFrameTiming();
+    }
     if (!handleFrameResult(result)) return;
     if (!scheduleNext) {
       renderDisassembly(result.instruction);
       renderEvaluator(result.evaluator);
       showEvaluationSource(result.source);
     }
-    if (scheduleNext) scheduleLoopFrame();
+    if (!result.completed) {
+      loopFrame = requestAnimationFrame(() => runLoopFrame(scheduleNext));
+    } else if (scheduleNext) {
+      scheduleLoopFrame();
+    } else {
+      loopRunning = false;
+      $("runButton").innerHTML = "<span>▶</span> Run";
+      runStatus.textContent = `Paused at frame ${loopFrameNumber}`;
+      updateDebugControls();
+    }
   } catch (error) {
     failLoop(String(error), "Loop crashed");
   }
+}
+
+function adjustedFuel(current: number, elapsedMs: number): number {
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) {
+    return Math.min(5_000_000, current * 2);
+  }
+  const ratio = Math.min(4, Math.max(0.25, targetBatchMs / elapsedMs));
+  return Math.max(1, Math.min(5_000_000, Math.round(current * (0.75 + 0.25 * ratio))));
 }
 
 function handleFrameResult(result: FrameResult): boolean {
@@ -1042,6 +1320,8 @@ function updateRunnerMode() {
     output.hidden = false;
   }
   $("deepEvalLabel").hidden = canvasMode;
+  document.querySelectorAll<HTMLElement>(".canvas-debug-only")
+    .forEach((element) => element.hidden = !canvasMode);
   runStatus.textContent = "Ready";
   updateDebugControls();
 }
@@ -1054,12 +1334,15 @@ setupDebugPanel();
 updateCursor(editor);
 
 $("newFileButton").onclick = newFile;
-$("loadExampleButton").onclick = loadCanvasExample;
+exampleSelect.onchange = loadSelectedExample;
 $("runButton").onclick = runActive;
 $("clearButton").onclick = () => { output.textContent = ""; runStatus.textContent = "Ready"; runStatus.className = "run-status"; };
 $("themeButton").onclick = () => { project.theme = project.theme === "dark" ? "light" : "dark"; applyTheme(); scheduleSave(); };
 runnerMode.onchange = updateRunnerMode;
-$("debugStart").onclick = () => { ensureCanvasMode(); startOrResumeLoop(); };
+$("debugStart").onclick = () => {
+  if (runnerMode.value === "canvas") startOrResumeLoop(true);
+  else startOrResumeEvaluation(true);
+};
 $("debugPause").onclick = pauseLoop;
 $("debugStepInstruction").onclick = stepInstruction;
 $("debugStepFrame").onclick = stepLoop;
@@ -1084,5 +1367,5 @@ globalThis.addEventListener("keyup", (event) => {
 $("loading").remove();
 $("app").hidden = false;
 editor.focus();
-updateDebugControls();
+updateRunnerMode();
 scheduleCompile();

@@ -1,9 +1,25 @@
-export const canvasExample = `args: {
+export const simpleExample = `let
+  fib = x:
+    if x <= 0 then 0
+    else if x == 1 then 1
+    else (fib (x - 1)) + (fib (x - 2));
+in {
+  greeting = "hello from mix",
+  answer = 6 * 7,
+  values = [1, 2, 3],
+  fib = fib,
+  fib10 = fib 10,
+}`;
+
+export const canvasExample = `{input = {keys}, state = previousState ? false}: let
   random = seed: salt:
     ((seed + 1) * (salt + 17) * 1103 + salt * 7919) % 65521;
 
   nonZero = value:
     if value == 0 then 1 else value;
+
+  ballCount = 10;
+  textSpeed = 4;
 
   makeBall = seed: index: {
     x = 20 + ((random seed (index * 5 + 0)) % 520);
@@ -13,101 +29,79 @@ export const canvasExample = `args: {
     hue = (random seed (index * 5 + 4)) % 360;
   };
 
-  moveBall = ball: {
-    dx =
-      if (ball.x <= 15) || (ball.x >= 545)
-      then -ball.dx
-      else ball.dx;
+  moveBall = {x, y, dx, dy, hue}: let
+    nextDx =
+      if (x <= 15) || (x >= 545)
+      then -dx
+      else dx;
 
-    dy =
-      if (ball.y <= 15) || (ball.y >= 225)
-      then -ball.dy
-      else ball.dy;
-
-    x = ball.x + dx;
-    y = ball.y + dy;
-    hue = (ball.hue + 2) % 360;
+    nextDy =
+      if (y <= 15) || (y >= 225)
+      then -dy
+      else dy;
+  in {
+    dx = nextDx;
+    dy = nextDy;
+    x = x + nextDx;
+    y = y + nextDy;
+    hue = (hue + 2) % 360;
   };
 
-  state =
-    if !args?state then
-    {
-      started = false;
-      waitFrames = 0;
-      seed = 0;
-      balls = [];
-      textX = 40;
-      textY = 40;
-    }
-    else if !args.state.started then
-      if args?input.keys." " then
-      {
-        started = true;
-        waitFrames = args.state.waitFrames;
-        seed = args.state.waitFrames;
-        textX = args.state.textX;
-        textY = args.state.textY;
-        balls = [
-          (makeBall seed 0),
-          (makeBall seed 1),
-          (makeBall seed 2),
-          (makeBall seed 3),
-          (makeBall seed 4),
-          (makeBall seed 5),
-          (makeBall seed 6),
-          (makeBall seed 7),
-          (makeBall seed 8),
-          (makeBall seed 9)
-        ];
-      }
-      else
-      {
-        started = false;
-        waitFrames = args.state.waitFrames + 1;
-        seed = 0;
-        balls = [];
-        textX = args.state.textX;
-        textY = args.state.textY;
-      }
+  defaultState = {
+    started = false;
+    waitFrames = 0;
+    seed = 0;
+    balls = [];
+    textX = 40;
+    textY = 40;
+  };
+
+  startGame = {waitFrames, textX, textY}: {
+    started = true;
+    waitFrames = waitFrames;
+    seed = waitFrames;
+    textX = textX;
+    textY = textY;
+    balls = builtins.mkList (i: makeBall waitFrames i) ballCount;
+  };
+
+  keepWaiting = {waitFrames, textX, textY}: {
+    started = false;
+    waitFrames = waitFrames + 1;
+    seed = 0;
+    balls = [];
+    textX = textX;
+    textY = textY;
+  };
+
+  movePosition = position: decrease: increase: min: max:
+    if decrease then
+      if position <= min then min else position - textSpeed
+    else if increase then
+      if position >= max then max else position + textSpeed
     else
-    {
-      started = true;
-      waitFrames = args.state.waitFrames;
-      seed = args.state.seed;
+      position;
 
-      textX =
-        if args?input.keys.a then
-          if args.state.textX <= 8 then 8
-          else args.state.textX - 4
-        else if args?input.keys.d then
-          if args.state.textX >= 395 then 395
-          else args.state.textX + 4
-        else
-          args.state.textX;
+  updateGame = {waitFrames, seed, balls, textX, textY}: {
+    started = true;
+    waitFrames = waitFrames;
+    seed = seed;
+    textX = movePosition textX (keys?a) (keys?d) 8 395;
+    textY = movePosition textY (keys?w) (keys?s) 22 195;
+    balls = builtins.mkList (i: moveBall balls.\${i}) balls.len;
+  };
 
-      textY =
-        if args?input.keys.w then
-          if args.state.textY <= 22 then 22
-          else args.state.textY - 4
-        else if args?input.keys.s then
-          if args.state.textY >= 195 then 195
-          else args.state.textY + 4
-        else
-          args.state.textY;
+  advanceState = state@{started}:
+    if started
+    then updateGame state
+    else if keys?" "
+    then startGame state
+    else keepWaiting state;
 
-      balls = [
-        (moveBall args.state.balls.0),
-        (moveBall args.state.balls.1),
-        (moveBall args.state.balls.2),
-        (moveBall args.state.balls.3),
-        (moveBall args.state.balls.4),
-        (moveBall args.state.balls.5),
-        (moveBall args.state.balls.6),
-        (moveBall args.state.balls.7),
-        (moveBall args.state.balls.8),
-        (moveBall args.state.balls.9)
-      ];
-    };
+  state =
+    if previousState == false
+    then defaultState
+    else advanceState previousState;
 
   hexDigits = [
     "0", "1", "2", "3",
@@ -140,48 +134,41 @@ export const canvasExample = `args: {
     else
       "#" + (hexByte 255) + (hexByte 0) + (hexByte (255 - (hueRamp hue)));
 
-  drawBall = ball: {
+  drawBall = {x, y, hue}: {
     kind = "circle";
-    x = ball.x;
-    y = ball.y;
+    x = x;
+    y = y;
     radius = 15;
-    color = colorFromHue ball.hue;
+    color = colorFromHue hue;
   };
 
   draw =
     if state.started then
-    [
-      {
-        kind = "clear";
-        color = "#0b0d10";
-      },
-      (drawBall state.balls.0),
-      (drawBall state.balls.1),
-      (drawBall state.balls.2),
-      (drawBall state.balls.3),
-      (drawBall state.balls.4),
-      (drawBall state.balls.5),
-      (drawBall state.balls.6),
-      (drawBall state.balls.7),
-      (drawBall state.balls.8),
-      (drawBall state.balls.9),
-      {
-        kind = "text";
-        x = state.textX;
-        y = state.textY;
-        text = "Mix canvas loop";
-        size = 16;
-        color = "#ff9f43";
-      },
-      {
-        kind = "text";
-        x = 16;
-        y = 225;
-        text = "WASD moves the orange text";
-        size = 13;
-        color = "#858d9c";
-      }
-    ]
+      [
+        {
+          kind = "clear";
+          color = "#0b0d10";
+        }
+      ]
+      + builtins.mkList (i: drawBall state.balls.\${i}) state.balls.len
+      + [
+        {
+          kind = "text";
+          x = state.textX;
+          y = state.textY;
+          text = "Mix canvas loop";
+          size = 16;
+          color = "#ff9f43";
+        },
+        {
+          kind = "text";
+          x = 16;
+          y = 225;
+          text = "WASD moves the orange text";
+          size = 13;
+          color = "#858d9c";
+        }
+      ]
     else
     [
       {
@@ -207,4 +194,7 @@ export const canvasExample = `args: {
         color = "#858d9c";
       }
     ];
+in {
+  state = state;
+  draw = draw;
 }`;

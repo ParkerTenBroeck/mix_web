@@ -5,15 +5,16 @@
   },
   "tasks": {
     "build": "deno run -A tools/build.ts",
+    "deploy": "deno run -A tools/deploy.ts",
     "dev": "deno run -A tools/dev.ts",
     "preview": "deno run -ENR jsr:@std/http/file-server dist"
   },
   "imports": {
     "@codemirror/commands": "npm:@codemirror/commands@^6.10.1",
     "@codemirror/language": "npm:@codemirror/language@^6.12.1",
+    "@codemirror/search": "npm:@codemirror/search@^6.5.11",
     "@codemirror/state": "npm:@codemirror/state@^6.5.3",
     "@codemirror/theme-one-dark": "npm:@codemirror/theme-one-dark@^6.1.3",
     "@codemirror/view": "npm:@codemirror/view@^6.39.9"
   }
 }
-

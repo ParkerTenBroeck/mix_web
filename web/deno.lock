@@ -3,6 +3,7 @@
   "specifiers": {
     "npm:@codemirror/commands@^6.10.1": "6.10.4",
     "npm:@codemirror/language@^6.12.1": "6.12.4",
+    "npm:@codemirror/search@^6.5.11": "6.7.1",
     "npm:@codemirror/state@^6.5.3": "6.7.1",
     "npm:@codemirror/theme-one-dark@^6.1.3": "6.1.3",
     "npm:@codemirror/view@^6.39.9": "6.43.6"
@@ -26,6 +27,14 @@
         "@lezer/highlight",
         "@lezer/lr",
         "style-mod"
+      ]
+    },
+    "@codemirror/search@6.7.1": {
+      "integrity": "sha512-uMe5UO6PamJtSHrXhhHOzSX3ReWtiJrva6GnPMwSOrZtiExb5X5eExhr2OUZQVvdxPsKpY3Ro2mFbQadpPWmHA==",
+      "dependencies": [
+        "@codemirror/state",
+        "@codemirror/view",
+        "crelt"
       ]
     },
     "@codemirror/state@6.7.1": {
@@ -84,6 +93,7 @@
     "dependencies": [
       "npm:@codemirror/commands@^6.10.1",
       "npm:@codemirror/language@^6.12.1",
+      "npm:@codemirror/search@^6.5.11",
       "npm:@codemirror/state@^6.5.3",
       "npm:@codemirror/theme-one-dark@^6.1.3",
       "npm:@codemirror/view@^6.39.9"

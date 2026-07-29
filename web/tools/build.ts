@@ -1,6 +1,7 @@
 const ROOT = new URL("../root/", import.meta.url);
 const DIST = new URL("../dist/", import.meta.url);
 const WASM = new URL("../wasm/", import.meta.url);
+const WASM_BUILD = new URL("../wasm-build/", import.meta.url);
 
 async function run(command: string[], cwd?: string) {
   const result = await new Deno.Command(command[0], {
@@ -11,12 +12,15 @@ async function run(command: string[], cwd?: string) {
 
 await Deno.remove(DIST, { recursive: true }).catch(() => {});
 await Deno.mkdir(DIST, { recursive: true });
+await Deno.remove(WASM_BUILD, { recursive: true }).catch(() => {});
 
 console.log("Building mix WebAssembly adapter…");
 await run([
   "wasm-pack", "build", "--target", "web", "--release",
-  "--out-dir", "../web/wasm",
+  "--out-dir", "../web/wasm-build",
 ], "../web_lib");
+await Deno.remove(WASM, { recursive: true }).catch(() => {});
+await Deno.rename(WASM_BUILD, WASM);
 
 console.log("Bundling playground…");
 await run([
