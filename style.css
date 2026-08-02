@@ -47,6 +47,7 @@ button { font: inherit; color: inherit; }
 .button.run { display: flex; gap: 8px; align-items: center; background: var(--accent); color: #1c130a; font-weight: 700; }
 .button.run:hover { background: var(--accent-2); }
 .example-select { max-width: 145px; color: var(--muted); }
+.format-button { font-size: 12px; }
 .settings-menu { position: relative; }
 .settings-menu summary { display: grid; min-width: 34px; padding: 0; place-items: center; cursor: pointer; list-style: none; }
 .settings-menu summary::-webkit-details-marker { display: none; }
