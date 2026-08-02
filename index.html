@@ -6,7 +6,7 @@
     <meta name="description" content="A multi-file browser playground for the mix language">
     <title>mix playground</title>
     <link rel="stylesheet" href="style.css">
-  <script src="./index-VYYQL26L.js" type="module" crossorigin></script></head>
+  <script src="./index-KKVNW6SR.js" type="module" crossorigin></script></head>
   <body>
     <main id="app" class="app" hidden>
       <header class="topbar">
@@ -29,6 +29,16 @@
             <option value="parser">Expression parser</option>
             <option value="interactive">Interactive canvas</option>
           </select>
+          <details id="settingsMenu" class="settings-menu">
+            <summary class="button subtle" aria-label="Evaluator settings" title="Evaluator settings">⚙</summary>
+            <div class="settings-popover">
+              <div class="settings-heading">Resource limits</div>
+              <label>Frame stack<select id="maxFrames"></select></label>
+              <label>Thunk stack<select id="maxThunks"></select></label>
+              <label>Value stack<select id="maxValues"></select></label>
+              <p>Changes restart and recompile the evaluator.</p>
+            </div>
+          </details>
           <button id="themeButton" class="button subtle" type="button" aria-label="Toggle theme">☾</button>
           <button id="runButton" class="button run" type="button"><span>▶</span> Run</button>
         </div>
